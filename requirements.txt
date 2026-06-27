@@ -1,0 +1,7 @@
+# Core runtime dependency
+PyYAML>=6.0
+
+# Optional: live/paper trading via Interactive Brokers
+#   pip install ib_async>=1.0.0
+# Optional: tests
+#   pip install pytest>=7.0

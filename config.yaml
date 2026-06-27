@@ -1,0 +1,37 @@
+# ORB bot configuration. All times are US Eastern (NYSE session clock).
+# Every value here has a sensible built-in default; override only what you need.
+
+contract:
+  symbol: ES
+  tick_size: 0.25        # ES = 0.25 index points per tick
+  tick_value: 12.50      # $12.50 per tick  ->  $50 per full point
+  fees_per_side: 2.50    # commission + fees, per contract, per side
+
+session:
+  open_time: "09:30"            # NYSE / RTH open
+  opening_range_minutes: 30     # 09:30 -> 10:00 opening range
+  last_entry_time: "15:00"      # no new entries after this
+  flat_time: "15:55"            # force-close everything by here
+  session_close: "16:00"
+
+strategy:
+  breakout_buffer_ticks: 1      # confirm a close this far beyond the range
+  target_r_multiple: 1.0        # take profit at 1R (range/stop distance); 0 = no target
+  stop_at_opposite_side: true   # stop at the far side of the opening range
+  fixed_stop_points: 5.0        # used only when stop_at_opposite_side is false
+  max_range_points: 40.0        # skip the day if the range is wider than this
+  min_range_points: 2.0         # skip the day if the range is narrower than this
+  one_trade_per_day: true
+  allow_long: true
+  allow_short: true
+
+risk:
+  # A full opening-range stop on ES is ~5-10 pts (~$250-$500/contract). On a
+  # small account that rounds to 0 contracts -- trade MES (--contract mes) or
+  # set fixed_contracts instead.
+  account_size: 100000.0
+  risk_per_trade_pct: 1.0       # risk ~1% of the account between entry and stop
+  max_contracts: 10
+  fixed_contracts: null         # set an integer to bypass risk-based sizing
+  daily_loss_limit: 2000.0      # stop trading for the day past this loss
+  daily_profit_target: null     # optional: stop once this profit is reached
