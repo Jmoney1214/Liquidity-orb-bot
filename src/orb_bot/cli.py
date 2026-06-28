@@ -13,12 +13,20 @@ from .feed.csv_feed import CSVFeed
 
 def _load_config(args) -> Config:
     cfg = Config.from_yaml(args.config) if args.config else Config()
-    if getattr(args, "contract", None) == "mes":
+    contract = getattr(args, "contract", None)
+    override = None
+    if contract == "mes":
+        override = ContractSpec.mes()
+    elif contract == "equity":
+        # Price equities at $1/share; label with the traded symbol when known.
+        override = ContractSpec.equity(getattr(args, "symbol", None) or "SPY")
+    if override is not None:
         cfg = Config(
-            contract=ContractSpec.mes(),
+            contract=override,
             session=cfg.session,
             strategy=cfg.strategy,
             risk=cfg.risk,
+            data=cfg.data,
         )
     return cfg
 
@@ -61,6 +69,24 @@ def _cmd_live(args) -> int:  # pragma: no cover - requires IB connection
     return 0
 
 
+def _cmd_fetch(args) -> int:
+    from .feed import build_feed, write_csv
+
+    cfg = _load_config(args)
+    feed = build_feed(
+        args.provider,
+        args.symbol,
+        interval=args.interval,
+        from_date=getattr(args, "from"),
+        to_date=args.to,
+        asset_class=args.asset_class,
+        alpaca_feed=cfg.data.alpaca_feed,
+    )
+    n = write_csv(feed.bars(), args.out)
+    print(f"Wrote {n} {args.interval} bars for {args.symbol} ({args.provider}) -> {args.out}")
+    return 0
+
+
 def _cmd_gen_sample(args) -> int:
     from .sample_data import generate
 
@@ -76,7 +102,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     def add_common(sp):
         sp.add_argument("--config", help="path to config.yaml (defaults to built-in ES config)")
-        sp.add_argument("--contract", choices=["es", "mes"], default="es")
+        sp.add_argument(
+            "--contract", choices=["es", "mes", "equity"], default="es",
+            help="instrument pricing: es/mes futures, or equity ($1/share for SPY/QQQ)",
+        )
 
     bt = sub.add_parser("backtest", help="run a historical backtest on a CSV")
     add_common(bt)
@@ -99,6 +128,21 @@ def build_parser() -> argparse.ArgumentParser:
     lv.add_argument("--expiry", default=None, help="contract expiry YYYYMM (else front month)")
     lv.set_defaults(func=_cmd_live)
 
+    ft = sub.add_parser("fetch", help="download real bars from FMP or Alpaca to CSV")
+    add_common(ft)
+    ft.add_argument("--provider", choices=["alpaca", "fmp"], default="alpaca")
+    ft.add_argument("--symbol", required=True, help="e.g. SPY, QQQ (or ESUSD for FMP futures)")
+    ft.add_argument("--interval", default="1min", choices=["1min", "5min", "15min", "30min"])
+    ft.add_argument("--from", default=None, help="start date YYYY-MM-DD")
+    ft.add_argument("--to", default=None, help="end date YYYY-MM-DD")
+    ft.add_argument(
+        "--asset-class", default="stock",
+        choices=["stock", "commodity", "index", "crypto", "forex"],
+        help="FMP only: which endpoint family the symbol belongs to",
+    )
+    ft.add_argument("--out", required=True, help="output CSV path")
+    ft.set_defaults(func=_cmd_fetch)
+
     gs = sub.add_parser("gen-sample", help="generate synthetic sample data")
     gs.add_argument("--out", default="tests/sample_data/es_sample.csv")
     gs.add_argument("--days", type=int, default=10)
@@ -115,7 +159,12 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(asctime)s %(levelname)s %(message)s",
     )
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (ValueError, RuntimeError) as exc:
+        # Expected, user-facing failures (missing keys, bad params, API errors).
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

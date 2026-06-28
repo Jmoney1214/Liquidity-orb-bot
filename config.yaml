@@ -25,6 +25,14 @@ strategy:
   allow_long: true
   allow_short: true
 
+data:
+  # Real market-data providers. API KEYS ARE READ FROM ENV VARS, never stored
+  # here: FMP_API_KEY, ALPACA_API_KEY_ID, ALPACA_API_SECRET_KEY (see .env.example).
+  provider: alpaca          # default historical/live provider: alpaca | fmp
+  watchlist: [SPY, QQQ]     # equities/ETFs to scan (ES/NQ proxies)
+  alpaca_feed: sip          # sip = pro/SIP feed; iex = free tier
+  fmp_asset_class: stock    # stock | commodity (ESUSD) | index | crypto | forex
+
 risk:
   # A full opening-range stop on ES is ~5-10 pts (~$250-$500/contract). On a
   # small account that rounds to 0 contracts -- trade MES (--contract mes) or

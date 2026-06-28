@@ -42,6 +42,12 @@ class ContractSpec:
     def mes(cls) -> "ContractSpec":
         return cls(symbol="MES", tick_size=0.25, tick_value=1.25, fees_per_side=0.50)
 
+    # Cash equity / ETF (e.g. SPY, QQQ): $0.01 tick, $1 per $1 move per share,
+    # commission-free on Alpaca.
+    @classmethod
+    def equity(cls, symbol: str = "SPY", fees_per_side: float = 0.0) -> "ContractSpec":
+        return cls(symbol=symbol, tick_size=0.01, tick_value=0.01, fees_per_side=fees_per_side)
+
 
 @dataclass(frozen=True)
 class SessionConfig:
@@ -97,11 +103,35 @@ class RiskConfig:
 
 
 @dataclass(frozen=True)
+class DataConfig:
+    """Market-data provider settings.
+
+    API keys are NEVER stored here — they are read from environment variables
+    at runtime (``FMP_API_KEY``, ``ALPACA_API_KEY_ID`` / ``ALPACA_API_SECRET_KEY``,
+    also accepting Alpaca's native ``APCA_API_KEY_ID`` / ``APCA_API_SECRET_KEY``).
+    """
+
+    provider: str = "alpaca"  # default historical/live provider: "alpaca" | "fmp"
+    watchlist: tuple[str, ...] = ("SPY", "QQQ")
+
+    # Alpaca market data (pro tier -> full SIP feed).
+    alpaca_feed: str = "sip"  # "sip" (pro) or "iex" (free)
+    alpaca_data_url: str = "https://data.alpaca.markets"
+
+    # Financial Modeling Prep.
+    fmp_base_url: str = "https://financialmodelingprep.com"
+    # Which FMP endpoint family the symbol belongs to:
+    #   "stock" (SPY/QQQ/AAPL), "commodity" (ESUSD/NQUSD), "index" (^GSPC), "crypto", "forex".
+    fmp_asset_class: str = "stock"
+
+
+@dataclass(frozen=True)
 class Config:
     contract: ContractSpec = field(default_factory=ContractSpec)
     session: SessionConfig = field(default_factory=SessionConfig)
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
+    data: DataConfig = field(default_factory=DataConfig)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "Config":
@@ -133,4 +163,13 @@ class Config:
 
         strategy = StrategyConfig(**(data.get("strategy") or {}))
         risk = RiskConfig(**(data.get("risk") or {}))
-        return cls(contract=contract, session=session, strategy=strategy, risk=risk)
+
+        d = dict(data.get("data") or {})
+        if "watchlist" in d and d["watchlist"] is not None:
+            d["watchlist"] = tuple(d["watchlist"])
+        data_cfg = DataConfig(**d)
+
+        return cls(
+            contract=contract, session=session, strategy=strategy,
+            risk=risk, data=data_cfg,
+        )

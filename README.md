@@ -83,6 +83,33 @@ timestamp,open,high,low,close,volume
 timestamps are assumed to be US Eastern. Include the regular-hours session;
 pre-market bars are ignored by the session window.
 
+## Real market data (FMP + Alpaca)
+
+Pull real 1-minute bars straight into the CSV format above. API keys are read
+from environment variables — copy [`.env.example`](.env.example) to `.env` and
+fill it in:
+
+| Provider | Env vars | Notes |
+|----------|----------|-------|
+| **Alpaca** | `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY` | Pro/algo tier → full **SIP** feed (`alpaca_feed: sip`). Stocks/ETFs only. |
+| **FMP** | `FMP_API_KEY` | Stocks/ETFs/indexes, plus true continuous **ES** futures as `ESUSD` (`--asset-class commodity`). |
+
+```bash
+# Alpaca (SIP) — SPY 1-minute bars, then backtest as an equity ($1/share)
+orb-bot fetch --provider alpaca --symbol SPY \
+  --from 2024-01-02 --to 2024-03-01 --out data/spy.csv
+orb-bot backtest --data data/spy.csv --contract equity
+
+# FMP — QQQ equities, or the real E-mini S&P 500 continuous future
+orb-bot fetch --provider fmp --symbol QQQ  --asset-class stock     --out data/qqq.csv
+orb-bot fetch --provider fmp --symbol ESUSD --asset-class commodity --out data/es.csv
+```
+
+> **Note on instruments.** Alpaca trades **stocks/ETFs/options/crypto — not
+> futures.** For an equities ORB, trade **SPY/QQQ** (the ES/NQ proxies). FMP can
+> additionally serve true ES futures bars (`ESUSD`) for research, but execution
+> of ES still requires a futures broker (the bundled IBKR adapter).
+
 ## Position sizing & account size
 
 A full opening-range stop on ES is typically ~5–10 points (~$250–$500 per
