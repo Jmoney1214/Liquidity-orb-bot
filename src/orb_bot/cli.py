@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import sys
+from dataclasses import replace
 
 from .config import Config, ContractSpec
 from .feed.csv_feed import CSVFeed
@@ -20,11 +21,15 @@ def _load_config(args) -> Config:
     elif contract == "equity":
         # Price equities at $1/share; label with the traded symbol when known.
         override = ContractSpec.equity(getattr(args, "symbol", None) or "SPY")
-    if override is not None:
+    strategy = cfg.strategy
+    mode = getattr(args, "mode", None)
+    if mode:
+        strategy = replace(strategy, entry_mode=mode)
+    if override is not None or strategy is not cfg.strategy:
         cfg = Config(
-            contract=override,
+            contract=override or cfg.contract,
             session=cfg.session,
-            strategy=cfg.strategy,
+            strategy=strategy,
             risk=cfg.risk,
             data=cfg.data,
         )
@@ -105,6 +110,10 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument(
             "--contract", choices=["es", "mes", "equity"], default="es",
             help="instrument pricing: es/mes futures, or equity ($1/share for SPY/QQQ)",
+        )
+        sp.add_argument(
+            "--mode", choices=["breakout_continuation", "liquidity_sweep_fade"],
+            default=None, help="override the strategy entry_mode from config",
         )
 
     bt = sub.add_parser("backtest", help="run a historical backtest on a CSV")

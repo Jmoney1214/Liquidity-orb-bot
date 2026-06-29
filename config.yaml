@@ -15,15 +15,34 @@ session:
   session_close: "16:00"
 
 strategy:
+  # Entry mode:
+  #   breakout_continuation -> trade THROUGH the range (buy strength/short weakness)
+  #   liquidity_sweep_fade  -> fade a FAILED break (wick past the level, close back
+  #                            inside): short swept highs, long swept lows
+  entry_mode: breakout_continuation
+
   breakout_buffer_ticks: 1      # confirm a close this far beyond the range
+  sweep_buffer_ticks: 1         # how far a wick must poke past the level to be a sweep
   target_r_multiple: 1.0        # take profit at 1R (range/stop distance); 0 = no target
-  stop_at_opposite_side: true   # stop at the far side of the opening range
+  stop_at_opposite_side: true   # breakout stop at the far side of the range
   fixed_stop_points: 5.0        # used only when stop_at_opposite_side is false
   max_range_points: 40.0        # skip the day if the range is wider than this
   min_range_points: 2.0         # skip the day if the range is narrower than this
   one_trade_per_day: true
   allow_long: true
   allow_short: true
+
+  # --- Confirmation stack (all OFF/lenient by default) ---
+  require_vwap: false           # continuation trades with VWAP; fade against an extension
+  require_ema_trend: false      # continuation only: long above EMA, short below
+  ema_period: 20
+  require_rsi: false            # breakout needs momentum (50); fade needs an extreme
+  rsi_period: 14
+  rsi_overbought: 70.0
+  rsi_oversold: 30.0
+  min_relative_volume: 0.0      # require current bar >= Nx normal volume; 0 = off
+  rvol_lookback_days: 14
+  atr_period: 14
 
 data:
   # Real market-data providers. API KEYS ARE READ FROM ENV VARS, never stored

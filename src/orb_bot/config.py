@@ -69,13 +69,23 @@ class SessionConfig:
 class StrategyConfig:
     """ORB strategy rules."""
 
+    # Entry mode:
+    #   "breakout_continuation" -> trade THROUGH the range (buy strength / sell
+    #       weakness after a confirmed break).
+    #   "liquidity_sweep_fade"  -> fade a FAILED break: price runs past the level
+    #       to grab stop-run liquidity, then closes back inside -> short the sweep
+    #       of highs, long the sweep of lows.
+    entry_mode: str = "breakout_continuation"
+
     # Confirm a breakout on the close of a bar beyond the range, plus this many
     # ticks of buffer to avoid getting chopped up right at the level.
     breakout_buffer_ticks: int = 1
+    # How far beyond the level (ticks) a wick must poke to count as a sweep.
+    sweep_buffer_ticks: int = 1
     # Take profit at this multiple of risk (range height by default). 0 disables.
     target_r_multiple: float = 1.0
     # Stop at the opposite side of the opening range when True; otherwise use
-    # ``fixed_stop_points`` below.
+    # ``fixed_stop_points`` below. (Breakout mode; sweeps always stop past the wick.)
     stop_at_opposite_side: bool = True
     fixed_stop_points: float = 5.0
     # Skip the day if the opening range is wider than this (too volatile / poor R).
@@ -85,6 +95,24 @@ class StrategyConfig:
     one_trade_per_day: bool = True
     allow_long: bool = True
     allow_short: bool = True
+
+    # --- Confirmation stack (all OFF/lenient by default) -------------------
+    # VWAP: continuation trades with VWAP (long above / short below); fade trades
+    # back toward it (short when extended above / long when extended below).
+    require_vwap: bool = False
+    # EMA trend filter (continuation only): long above EMA, short below.
+    require_ema_trend: bool = False
+    ema_period: int = 20
+    # RSI: continuation needs momentum (long >=50 / short <=50); fade needs an
+    # extreme (short >= overbought / long <= oversold).
+    require_rsi: bool = False
+    rsi_period: int = 14
+    rsi_overbought: float = 70.0
+    rsi_oversold: float = 30.0
+    # Relative volume gate: require current bar >= this multiple of normal. 0 = off.
+    min_relative_volume: float = 0.0
+    rvol_lookback_days: int = 14
+    atr_period: int = 14
 
 
 @dataclass(frozen=True)

@@ -32,6 +32,37 @@ Position size is risk-based: it sizes so that hitting the stop loses about
 `risk_per_trade_pct` of the account, clamped to `max_contracts`. Daily loss
 limit and optional profit target halt trading for the rest of the session.
 
+### Entry modes
+
+Two modes share the same opening-range engine, indicator stack, and risk gate
+(set `strategy.entry_mode`, or override with `--mode`):
+
+| Mode | Trigger | Stop | Idea |
+|------|---------|------|------|
+| `breakout_continuation` *(default)* | Bar **closes** beyond the range (+buffer) | Opposite side of range | Buy strength / sell weakness after a confirmed break |
+| `liquidity_sweep_fade` | A wick runs **past** the level but the bar **closes back inside** | Just past the swept wick | Fade a failed break after stops get run — short swept highs, long swept lows |
+
+```bash
+orb-bot backtest --data data/spy.csv --contract equity --mode breakout_continuation
+orb-bot backtest --data data/spy.csv --contract equity --mode liquidity_sweep_fade
+```
+
+### Confirmation stack
+
+Optional indicator filters (all **off by default**) gate entries. Computed
+incrementally so they behave identically in backtest and live:
+
+| Filter | `breakout_continuation` | `liquidity_sweep_fade` |
+|--------|-------------------------|------------------------|
+| **VWAP** (`require_vwap`) | trade with it (long above / short below) | trade against an extension (short above / long below) |
+| **EMA** (`require_ema_trend`) | long above EMA / short below | *(n/a)* |
+| **RSI** (`require_rsi`) | momentum: long ≥ 50 / short ≤ 50 | extreme: short ≥ overbought / long ≤ oversold |
+| **Relative volume** (`min_relative_volume`) | bar volume ≥ Nx the same minute-of-day's norm | same |
+| **ATR** (`atr_period`) | computed and surfaced for sizing/analysis | same |
+
+A failed filter rejects the bar but does **not** burn the day — a later bar can
+still qualify. Tune these in `config.yaml` under `strategy:`.
+
 ---
 
 ## Install
@@ -157,9 +188,10 @@ omitted falls back to the built-in defaults. Highlights:
 src/orb_bot/
   config.py        # contract spec, session times, strategy/risk params
   models.py        # Bar, Order, Position, Trade, OpeningRange
-  strategy.py      # ORBStrategy — the broker-agnostic core
+  strategy.py      # ORBStrategy — modes, confirmation stack, broker-agnostic core
+  indicators.py    # incremental EMA / RSI / ATR / session VWAP / relative volume
   risk.py          # position sizing + daily risk guard
-  feed/            # DataFeed interface + CSV reader
+  feed/            # DataFeed interface, CSV reader, FMP + Alpaca providers
   broker/          # Broker interface, PaperBroker (sim), IBKRBroker (live)
   backtest/        # Backtester + performance metrics
   live/            # replay + IB live runners
