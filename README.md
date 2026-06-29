@@ -63,6 +63,43 @@ incrementally so they behave identically in backtest and live:
 A failed filter rejects the bar but does **not** burn the day — a later bar can
 still qualify. Tune these in `config.yaml` under `strategy:`.
 
+## Copilot: decision gate + scanner (alert-only)
+
+The bot can run as a **stock/ETF copilot**: it scans a watchlist, runs every
+detected setup through a deterministic gate, and emits **PASS / WARN / BLOCK**
+alerts with a risk preview. It **never places orders** — a human reads the
+alert and decides.
+
+```bash
+# Scan a watchlist over a date range (provider data)
+orb-bot scan --provider alpaca --symbols SPY,QQQ --from 2024-03-01 --to 2024-03-15
+
+# Scan a local CSV (no keys needed)
+orb-bot scan --data data/spy.csv --symbol SPY
+
+# Live, alert-only polling loop
+orb-bot scan --live --provider alpaca --symbols SPY,QQQ --poll 15
+```
+
+Each alert looks like:
+
+```
+[WARN ] SPY  breakout LONG @ 2024-03-13 10:08 | R:R 1.00 | WARN — caution on:
+        reward_risk_quality. (breakout LONG, vwap 4926.13, rsi 61, rvol 1.49x)
+```
+
+**Verdict rules** (`config.yaml → gate:`):
+
+- **BLOCK** — any *hard* (L5) safety rail fails: in a position, daily loss limit
+  hit, size rounds to 0, invalid stop, price below `min_price`, notional below
+  `min_dollar_volume`, R:R below `min_rr_hard`, or spread over `max_spread_bps`.
+- **WARN** — no hard failure, but a soft check flags: R:R below `min_rr_good`,
+  thin/unknown relative volume, against-VWAP, or off-side RSI.
+- **PASS** — every check clean.
+
+The logic is 100% deterministic — an LLM analyst may *explain* a verdict
+(`Decision.analyst_note`), but it never overrides the rules.
+
 ---
 
 ## Install
@@ -190,9 +227,11 @@ src/orb_bot/
   models.py        # Bar, Order, Position, Trade, OpeningRange
   strategy.py      # ORBStrategy — modes, confirmation stack, broker-agnostic core
   indicators.py    # incremental EMA / RSI / ATR / session VWAP / relative volume
+  gate.py          # deterministic PASS/WARN/BLOCK decision engine
+  scanner.py       # alert-only watchlist scanner (batch + live polling)
   risk.py          # position sizing + daily risk guard
   feed/            # DataFeed interface, CSV reader, FMP + Alpaca providers
-  broker/          # Broker interface, PaperBroker (sim), IBKRBroker (live)
+  broker/          # Broker interface, Paper / Null / IBKR adapters
   backtest/        # Backtester + performance metrics
   live/            # replay + IB live runners
   sample_data.py   # synthetic data generator

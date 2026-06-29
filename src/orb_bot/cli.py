@@ -74,6 +74,63 @@ def _cmd_live(args) -> int:  # pragma: no cover - requires IB connection
     return 0
 
 
+def _alert_json(alert) -> dict:
+    d = alert.decision
+    return {
+        "symbol": alert.symbol,
+        "time": alert.timestamp.isoformat(),
+        "verdict": d.verdict.value,
+        "side": d.side.value,
+        "kind": d.kind,
+        "entry": d.risk.entry,
+        "stop": d.risk.stop,
+        "target": d.risk.target,
+        "rr": d.risk.rr,
+        "dollar_risk": d.risk.dollar_risk,
+        "explanation": d.explanation,
+        "failed_checks": [c.name for c in d.checks if not c.passed],
+    }
+
+
+def _cmd_scan(args) -> int:
+    from .scanner import Scanner, summarize
+    from .feed import build_feed, CSVFeed
+
+    cfg = _load_config(args)
+    scanner = Scanner(cfg)
+    symbols = [s.strip().upper() for s in (args.symbols or "").split(",") if s.strip()]
+
+    if args.live:
+        from .feed.alpaca_feed import AlpacaClient
+
+        if not symbols:
+            raise ValueError("--symbols is required for a live scan")
+        client = AlpacaClient(feed=cfg.data.alpaca_feed)
+        logging.warning("Live scan is ALERT-ONLY; it never places orders.")
+        scanner.run_live(symbols, client, poll_seconds=args.poll)
+        return 0
+
+    feeds = {}
+    if args.data:
+        feeds[args.symbol or "SYMBOL"] = CSVFeed(args.data)
+    else:
+        if not symbols:
+            raise ValueError("provide --symbols (provider scan) or --data + --symbol (CSV scan)")
+        for s in symbols:
+            feeds[s] = build_feed(
+                args.provider, s, interval="1min",
+                from_date=getattr(args, "from"), to_date=args.to,
+                asset_class=args.asset_class, alpaca_feed=cfg.data.alpaca_feed,
+            )
+
+    alerts = scanner.scan(feeds)
+    if args.json:
+        print(json.dumps([_alert_json(a) for a in alerts], indent=2, default=str))
+    else:
+        print(summarize(alerts))
+    return 0
+
+
 def _cmd_fetch(args) -> int:
     from .feed import build_feed, write_csv
 
@@ -136,6 +193,27 @@ def build_parser() -> argparse.ArgumentParser:
     lv.add_argument("--client-id", type=int, default=1)
     lv.add_argument("--expiry", default=None, help="contract expiry YYYYMM (else front month)")
     lv.set_defaults(func=_cmd_live)
+
+    sc = sub.add_parser("scan", help="alert-only watchlist scan (PASS/WARN/BLOCK), never trades")
+    sc.add_argument("--config", help="path to config.yaml")
+    sc.add_argument(
+        "--contract", choices=["es", "mes", "equity"], default="equity",
+        help="instrument pricing (default equity for SPY/QQQ)",
+    )
+    sc.add_argument(
+        "--mode", choices=["breakout_continuation", "liquidity_sweep_fade"], default=None,
+    )
+    sc.add_argument("--symbols", help="comma-separated watchlist, e.g. SPY,QQQ")
+    sc.add_argument("--provider", choices=["alpaca", "fmp"], default="alpaca")
+    sc.add_argument("--from", default=None, help="start date YYYY-MM-DD (provider scan)")
+    sc.add_argument("--to", default=None, help="end date YYYY-MM-DD (provider scan)")
+    sc.add_argument("--asset-class", default="stock", choices=["stock", "commodity", "index", "crypto", "forex"])
+    sc.add_argument("--data", default=None, help="scan a local CSV instead of a provider")
+    sc.add_argument("--symbol", default=None, help="symbol label when using --data")
+    sc.add_argument("--live", action="store_true", help="poll live bars and alert in real time")
+    sc.add_argument("--poll", type=float, default=15.0, help="live poll interval (seconds)")
+    sc.add_argument("--json", action="store_true", help="emit alerts as JSON")
+    sc.set_defaults(func=_cmd_scan)
 
     ft = sub.add_parser("fetch", help="download real bars from FMP or Alpaca to CSV")
     add_common(ft)

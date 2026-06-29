@@ -154,12 +154,34 @@ class DataConfig:
 
 
 @dataclass(frozen=True)
+class GateConfig:
+    """Thresholds for the PASS/WARN/BLOCK decision engine.
+
+    "Hard" checks are L5 blocks — non-negotiable safety rails that force BLOCK.
+    "Warn" checks downgrade a PASS to WARN but still let the human decide.
+    """
+
+    # --- Hard blocks (L5) ---
+    min_price: float = 5.0                  # avoid sub-$5 / illiquid names
+    min_dollar_volume: float = 1_000_000.0  # per-bar notional floor (volume * price)
+    max_spread_bps: float = 10.0            # only enforced when a live quote is supplied
+    min_rr_hard: float = 1.0                # reject reward:risk below this (when a target is set)
+
+    # --- Soft warnings ---
+    min_rr_good: float = 1.5                # warn on R:R between hard floor and this
+    warn_dollar_volume: float = 5_000_000.0
+    min_rvol_warn: float = 1.0              # warn on thin/unknown relative volume
+    warn_spread_bps: float = 5.0
+
+
+@dataclass(frozen=True)
 class Config:
     contract: ContractSpec = field(default_factory=ContractSpec)
     session: SessionConfig = field(default_factory=SessionConfig)
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
     data: DataConfig = field(default_factory=DataConfig)
+    gate: GateConfig = field(default_factory=GateConfig)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "Config":
@@ -197,7 +219,9 @@ class Config:
             d["watchlist"] = tuple(d["watchlist"])
         data_cfg = DataConfig(**d)
 
+        gate = GateConfig(**(data.get("gate") or {}))
+
         return cls(
             contract=contract, session=session, strategy=strategy,
-            risk=risk, data=data_cfg,
+            risk=risk, data=data_cfg, gate=gate,
         )

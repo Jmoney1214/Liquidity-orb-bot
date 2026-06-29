@@ -44,6 +44,18 @@ strategy:
   rvol_lookback_days: 14
   atr_period: 14
 
+gate:
+  # Decision engine thresholds. "Hard" checks are L5 blocks (force BLOCK);
+  # "warn" thresholds downgrade PASS -> WARN but still let the human decide.
+  min_price: 5.0                # hard: skip sub-$5 / illiquid names
+  min_dollar_volume: 1000000.0  # hard: per-bar notional floor (volume * price)
+  max_spread_bps: 10.0          # hard: spread ceiling (only when a live quote exists)
+  min_rr_hard: 1.0              # hard: reject reward:risk below this
+  min_rr_good: 1.5              # warn: R:R between hard floor and this
+  warn_dollar_volume: 5000000.0 # warn: thin liquidity comfort floor
+  min_rvol_warn: 1.0            # warn: relative volume below this
+  warn_spread_bps: 5.0
+
 data:
   # Real market-data providers. API KEYS ARE READ FROM ENV VARS, never stored
   # here: FMP_API_KEY, ALPACA_API_KEY_ID, ALPACA_API_SECRET_KEY (see .env.example).

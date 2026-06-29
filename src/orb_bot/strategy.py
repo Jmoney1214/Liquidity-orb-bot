@@ -20,6 +20,7 @@ from dataclasses import dataclass
 
 from .config import Config, EXCHANGE_TZ
 from .broker.base import Broker
+from .gate import SetupContext
 from .indicators import Indicators, IndicatorSnapshot
 from .models import Bar, OpeningRange, Side, Trade, DayResult
 from .risk import DailyRiskGuard, position_size
@@ -42,13 +43,23 @@ class _Signal:
 
 
 class ORBStrategy:
-    def __init__(self, config: Config, broker: Broker) -> None:
+    def __init__(
+        self,
+        config: Config,
+        broker: Broker,
+        symbol: str = "",
+        signal_listener=None,
+    ) -> None:
         if config.strategy.entry_mode not in ENTRY_MODES:
             raise ValueError(
                 f"entry_mode must be one of {ENTRY_MODES}, got {config.strategy.entry_mode!r}"
             )
         self.cfg = config
         self.broker = broker
+        self.symbol = symbol
+        # Optional callable(SetupContext) invoked once per detected setup. Used by
+        # the scanner to run the gate without affecting backtest behaviour.
+        self.signal_listener = signal_listener
         self.guard = DailyRiskGuard(config.risk)
 
         scfg = config.strategy
@@ -67,6 +78,7 @@ class ORBStrategy:
         self._range_ready = False
         self._range_skipped = False  # filtered out (too wide/narrow)
         self._traded_today = False
+        self._alerted_today = False  # dedupe setup alerts to one per day
         self.results: list[DayResult] = []
         self._today: DayResult | None = None
 
@@ -118,6 +130,7 @@ class ORBStrategy:
         self._range_ready = False
         self._range_skipped = False
         self._traded_today = False
+        self._alerted_today = False
         self.guard.reset()
         self.ind.reset_session()
         self._today = DayResult(date=str(day), opening_range=None)
@@ -171,15 +184,22 @@ class ORBStrategy:
         if sig is None:
             return
 
-        # 2. Confirmation stack. A rejection does NOT consume the day -- a later
+        qty = position_size(self.cfg.risk, self.cfg.contract, sig.entry, sig.stop)
+
+        # 2. Emit the setup to any listener (the scanner's gate). Once per day.
+        if self.signal_listener is not None and not self._alerted_today:
+            self.signal_listener(self._build_context(bar, sig, qty))
+            if self.cfg.strategy.one_trade_per_day:
+                self._alerted_today = True
+
+        # 3. Confirmation stack. A rejection does NOT consume the day -- a later
         #    bar may still qualify (esp. for breakout continuation).
         ok, reason = self._confirms(sig.side, sig.kind, bar)
         if not ok:
             logger.info("%s: %s %s setup rejected by %s", self._date, sig.kind, sig.side.value, reason)
             return
 
-        # 3. Size and enter.
-        qty = position_size(self.cfg.risk, self.cfg.contract, sig.entry, sig.stop)
+        # 4. Size and enter.
         if qty <= 0:
             logger.info("%s: position size rounded to 0; skipping signal", self._date)
             self._traded_today = True
@@ -195,6 +215,26 @@ class ORBStrategy:
             f"{snap.vwap:.2f}" if snap and snap.vwap else "na",
             f"{snap.rsi:.0f}" if snap and snap.rsi else "na",
             f"{snap.rvol:.2f}" if snap and snap.rvol else "na",
+        )
+
+    def _build_context(self, bar: Bar, sig: _Signal, qty: int) -> SetupContext:
+        return SetupContext(
+            symbol=self.symbol,
+            bar=bar,
+            side=sig.side,
+            kind=sig.kind,
+            entry=sig.entry,
+            stop=sig.stop,
+            target=sig.target,
+            risk_points=sig.risk_points,
+            snapshot=self.snapshot,
+            opening_range=self._opening_range,
+            quantity=qty,
+            contract=self.cfg.contract,
+            risk=self.cfg.risk,
+            daily_pnl=self.guard.realized_pnl,
+            in_position=self.broker.position() is not None,
+            entry_mode=self.cfg.strategy.entry_mode,
         )
 
     # -- signal generation (per mode) ------------------------------------
