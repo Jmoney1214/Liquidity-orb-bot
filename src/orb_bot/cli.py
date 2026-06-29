@@ -131,6 +131,48 @@ def _cmd_scan(args) -> int:
     return 0
 
 
+def _cmd_sweep(args) -> int:
+    from .sweep import run_sweep, render, DEFAULT_GRID
+    from .feed import build_feed, CSVFeed
+
+    cfg = _load_config(args)
+    if args.data:
+        feed = CSVFeed(args.data)
+    elif args.symbol:
+        feed = build_feed(
+            args.provider, args.symbol, interval="1min",
+            from_date=getattr(args, "from"), to_date=args.to,
+            asset_class=args.asset_class, alpaca_feed=cfg.data.alpaca_feed,
+        )
+    else:
+        raise ValueError("provide --data CSV, or --symbol with --provider/--from/--to")
+
+    grid = DEFAULT_GRID
+    if args.grid:
+        import yaml
+
+        grid = yaml.safe_load(open(args.grid)) or DEFAULT_GRID
+
+    results = run_sweep(
+        cfg, feed, grid=grid, train_frac=args.split, rank_by=args.rank_by,
+        min_trades=args.min_trades, slippage_ticks=args.slippage,
+    )
+    if args.json:
+        payload = [
+            {
+                "params": r.params,
+                "train": r.train.as_dict(),
+                "test": r.test.as_dict() if r.test else None,
+                "holds_up": r.holds_up(),
+            }
+            for r in results[: args.top]
+        ]
+        print(json.dumps(payload, indent=2, default=str))
+    else:
+        print(render(results, args.rank_by, top=args.top))
+    return 0
+
+
 def _cmd_fetch(args) -> int:
     from .feed import build_feed, write_csv
 
@@ -193,6 +235,27 @@ def build_parser() -> argparse.ArgumentParser:
     lv.add_argument("--client-id", type=int, default=1)
     lv.add_argument("--expiry", default=None, help="contract expiry YYYYMM (else front month)")
     lv.set_defaults(func=_cmd_live)
+
+    sw = sub.add_parser("sweep", help="tune strategy params with an out-of-sample split")
+    sw.add_argument("--config", help="path to config.yaml (base config)")
+    sw.add_argument("--contract", choices=["es", "mes", "equity"], default="es")
+    sw.add_argument("--data", default=None, help="CSV of 1-min bars")
+    sw.add_argument("--symbol", default=None, help="fetch from provider instead of --data")
+    sw.add_argument("--provider", choices=["alpaca", "fmp"], default="alpaca")
+    sw.add_argument("--from", default=None)
+    sw.add_argument("--to", default=None)
+    sw.add_argument("--asset-class", default="stock", choices=["stock", "commodity", "index", "crypto", "forex"])
+    sw.add_argument("--split", type=float, default=0.7, help="train fraction (rest is out-of-sample)")
+    sw.add_argument(
+        "--rank-by", choices=["net_pnl", "profit_factor", "expectancy", "sharpe"],
+        default="profit_factor",
+    )
+    sw.add_argument("--min-trades", type=int, default=10, help="ignore configs with fewer train trades")
+    sw.add_argument("--top", type=int, default=10)
+    sw.add_argument("--slippage", type=float, default=1.0)
+    sw.add_argument("--grid", default=None, help="optional YAML grid override (section.key: [values])")
+    sw.add_argument("--json", action="store_true")
+    sw.set_defaults(func=_cmd_sweep)
 
     sc = sub.add_parser("scan", help="alert-only watchlist scan (PASS/WARN/BLOCK), never trades")
     sc.add_argument("--config", help="path to config.yaml")

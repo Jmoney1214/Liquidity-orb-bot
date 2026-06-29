@@ -100,6 +100,35 @@ Each alert looks like:
 The logic is 100% deterministic — an LLM analyst may *explain* a verdict
 (`Decision.analyst_note`), but it never overrides the rules.
 
+## Tuning: parameter sweep (with out-of-sample split)
+
+`sweep` grid-searches **strategy** parameters and ranks them, splitting the data
+chronologically into in-sample (train) and out-of-sample (test) so you can see
+whether an edge survives on unseen data:
+
+```bash
+orb-bot sweep --data data/spy.csv --contract equity --split 0.7 --rank-by profit_factor
+```
+
+```
+Top 6 of 72 configs (ranked by train profit_factor):
+  IS = in-sample (train), OOS = out-of-sample (test). Trust configs strong on BOTH.
+• entry_mode=breakout_continuation, target_r_multiple=1.5, breakout_buffer_ticks=1, ...
+    IS: pf 4.82  net $14,235  n 21  win 76%  |  OOS: pf 2.66  net $4,262  n 9  ✓ holds up
+```
+
+Custom grid via `--grid grid.yaml` (`section.key: [values]`). Rank on
+`net_pnl | profit_factor | expectancy | sharpe`; `--min-trades` filters thin
+samples.
+
+**What it does *not* tune — by design.** It only varies parameters that drive
+backtested PnL (entry mode, target R, range length, buffer, filters). It never
+sweeps the gate's **hard safety thresholds** (`min_price`, `min_dollar_volume`,
+`min_rr_hard`, daily loss limit). Those are risk *rails*, not performance dials
+— "optimising" them against PnL just removes safety to flatter the curve. A
+config that tops the train table but collapses out-of-sample (`✗ weak OOS`) is
+curve-fit; trust the ones strong on both.
+
 ---
 
 ## Install
@@ -229,6 +258,7 @@ src/orb_bot/
   indicators.py    # incremental EMA / RSI / ATR / session VWAP / relative volume
   gate.py          # deterministic PASS/WARN/BLOCK decision engine
   scanner.py       # alert-only watchlist scanner (batch + live polling)
+  sweep.py         # parameter sweep with in-sample/out-of-sample split
   risk.py          # position sizing + daily risk guard
   feed/            # DataFeed interface, CSV reader, FMP + Alpaca providers
   broker/          # Broker interface, Paper / Null / IBKR adapters
